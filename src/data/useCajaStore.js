@@ -3,17 +3,20 @@ import {
   addDoc,
   collection,
   doc,
+  getDocs,
   onSnapshot,
   serverTimestamp,
   setDoc,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
-import { auth, db, isFirebaseConfigured } from "../lib/firebase";
+import { auth, cajaWorkspaceId, db, isFirebaseConfigured } from "../lib/firebase";
 import { categoryKey, sameMonth, todayISO } from "../lib/format";
 import { seedData, walletLabels } from "./seed";
 
 const STORAGE_KEY = "control-de-caja:v1";
+const MIGRATION_KEY = `control-de-caja:migrated:${cajaWorkspaceId}`;
 const COLLECTIONS = [
   "products",
   "movements",
@@ -46,6 +49,26 @@ const loadLocal = () => {
 
 const saveLocal = (next) => localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 
+const hasLocalActivity = (localData) => {
+  if (COLLECTIONS.some((name) => name !== "products" && (localData[name] ?? []).length > 0)) {
+    return true;
+  }
+
+  const seedProducts = new Map(cloneSeed().products.map((product) => [product.id, product]));
+  return (localData.products ?? []).some((product) => {
+    const seedProduct = seedProducts.get(product.id);
+    if (!seedProduct) return true;
+    return (
+      product.name !== seedProduct.name ||
+      product.category !== seedProduct.category ||
+      product.variant !== seedProduct.variant ||
+      Number(product.quantity) !== Number(seedProduct.quantity) ||
+      Number(product.unitCost) !== Number(seedProduct.unitCost) ||
+      Number(product.salePrice) !== Number(seedProduct.salePrice)
+    );
+  });
+};
+
 export function useCajaStore() {
   const [user, setUser] = useState(null);
   const [isRemoteReady, setIsRemoteReady] = useState(false);
@@ -64,17 +87,75 @@ export function useCajaStore() {
     return () => unsubAuth();
   }, []);
 
+  const collectionRef = (name) => collection(db, "workspaces", cajaWorkspaceId, name);
+  const docRef = (name, id) => doc(db, "workspaces", cajaWorkspaceId, name, id);
+
   useEffect(() => {
     if (!isRemoteReady || !user) return undefined;
 
-    const unsubs = COLLECTIONS.map((name) =>
-      onSnapshot(collection(db, "users", user.uid, name), (snapshot) => {
-        const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-        setData((current) => ({ ...current, [name]: values }));
-      }),
-    );
+    let cancelled = false;
+    let unsubs = [];
 
-    return () => unsubs.forEach((unsubscribe) => unsubscribe());
+    const migrateLocalOnce = async () => {
+      if (localStorage.getItem(MIGRATION_KEY)) return;
+
+      const localData = loadLocal();
+      const localHasActivity = hasLocalActivity(localData);
+      const snapshots = await Promise.all(COLLECTIONS.map((name) => getDocs(collectionRef(name))));
+      const remoteHasData = snapshots.some((snapshot) => !snapshot.empty);
+
+      if (!localHasActivity && remoteHasData) {
+        localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+        return;
+      }
+
+      let batch = writeBatch(db);
+      let batchSize = 0;
+      const commitBatch = async () => {
+        if (batchSize === 0) return;
+        await batch.commit();
+        batch = writeBatch(db);
+        batchSize = 0;
+      };
+
+      for (const name of COLLECTIONS) {
+        for (const item of localData[name] ?? []) {
+          if (!item.id) continue;
+          batch.set(docRef(name, item.id), {
+            ...item,
+            migratedAt: serverTimestamp(),
+            lastMigratedBy: user.uid,
+          }, { merge: true });
+          batchSize += 1;
+          if (batchSize >= 450) await commitBatch();
+        }
+      }
+      await commitBatch();
+      localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+    };
+
+    const subscribeRemote = async () => {
+      await migrateLocalOnce();
+      if (cancelled) return;
+
+      unsubs = COLLECTIONS.map((name) =>
+        onSnapshot(collectionRef(name), (snapshot) => {
+          const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+          setData((current) => {
+            const next = { ...current, [name]: values };
+            saveLocal(next);
+            return next;
+          });
+        }),
+      );
+    };
+
+    subscribeRemote().catch(() => setIsRemoteReady(false));
+
+    return () => {
+      cancelled = true;
+      unsubs.forEach((unsubscribe) => unsubscribe());
+    };
   }, [isRemoteReady, user]);
 
   const persistLocal = (producer) => {
@@ -89,7 +170,7 @@ export function useCajaStore() {
 
   const addRemote = async (name, payload) => {
     if (!isRemoteReady || !user) return null;
-    const ref = await addDoc(collection(db, "users", user.uid, name), {
+    const ref = await addDoc(collectionRef(name), {
       ...payload,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
@@ -100,7 +181,7 @@ export function useCajaStore() {
 
   const updateRemote = async (name, id, payload) => {
     if (!isRemoteReady || !user) return;
-    await updateDoc(doc(db, "users", user.uid, name, id), {
+    await updateDoc(docRef(name, id), {
       ...payload,
       updatedAt: serverTimestamp(),
       userId: user.uid,
@@ -109,7 +190,7 @@ export function useCajaStore() {
 
   const setRemote = async (name, id, payload) => {
     if (!isRemoteReady || !user) return;
-    await setDoc(doc(db, "users", user.uid, name, id), {
+    await setDoc(docRef(name, id), {
       ...payload,
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),

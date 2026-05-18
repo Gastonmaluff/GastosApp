@@ -512,7 +512,7 @@ function SettingsScreen({ data, remoteReady }) {
     <div className="stack">
       <InfoCard title="Datos">
         <MetricRow label="Modo de persistencia" value={0} />
-        <p className="settings-line">{remoteReady ? "Firebase activo por usuario autenticado anónimo." : "Datos mock/localStorage hasta completar .env.local con Firebase."}</p>
+        <p className="settings-line">{remoteReady ? "Firebase activo con caja compartida entre dispositivos." : "Datos mock/localStorage hasta completar .env.local con Firebase."}</p>
       </InfoCard>
       <InfoCard title="Objetivos">
         <MetricRow label="Pago mensual deuda" value={data.settings.monthlyDebtTarget} />

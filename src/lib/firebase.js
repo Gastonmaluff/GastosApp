@@ -11,6 +11,14 @@ const firebaseConfig = {
   appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
+const normalizeWorkspaceId = (value) =>
+  String(value || "principal")
+    .trim()
+    .replace(/[^a-zA-Z0-9_-]/g, "-")
+    .slice(0, 80) || "principal";
+
+export const cajaWorkspaceId = normalizeWorkspaceId(import.meta.env.VITE_CAJA_WORKSPACE_ID);
+
 export const isFirebaseConfigured = Boolean(
   firebaseConfig.apiKey &&
     firebaseConfig.authDomain &&
