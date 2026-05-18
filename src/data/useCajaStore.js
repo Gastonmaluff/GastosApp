@@ -11,7 +11,7 @@ import {
   writeBatch,
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from "firebase/auth";
-import { auth, cajaWorkspaceId, db, isFirebaseConfigured } from "../lib/firebase";
+import { auth, authPersistenceReady, cajaWorkspaceId, db, firebaseApp, isFirebaseConfigured } from "../lib/firebase";
 import { appBuildId } from "../lib/appInfo";
 import { categoryKey, sameMonth, todayISO } from "../lib/format";
 import { seedData, walletLabels } from "./seed";
@@ -109,13 +109,22 @@ export function useCajaStore() {
       return undefined;
     }
 
+    let isCancelled = false;
     let unsubAuth = () => {};
-    unsubAuth = onAuthStateChanged(auth, (nextUser) => {
+    authPersistenceReady.then(() => {
+      if (isCancelled) return;
+      unsubAuth = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setIsRemoteReady(false);
       setIsAuthReady(true);
       setSyncError("");
       setSyncStatus(nextUser ? "syncing" : "signed-out");
+      console.log("APP BUILD VERSION:", appBuildId);
+      console.log("Firebase project:", firebaseApp?.options?.projectId);
+      console.log("Auth currentUser:", auth.currentUser?.uid, auth.currentUser?.email);
+      console.log("Auth ready:", !!auth.currentUser);
+      console.log("Active localId:", cajaWorkspaceId);
+      console.log("Firestore read path:", collectionPath("movements"));
       logSync("Estado de autenticacion", {
         build: appBuildId,
         uid: nextUser?.uid || null,
@@ -123,9 +132,18 @@ export function useCajaStore() {
         workspaceId: cajaWorkspaceId,
         collections: COLLECTIONS.map(collectionPath),
       });
+      });
+    }).catch((error) => {
+      setIsAuthReady(true);
+      setSyncStatus("error");
+      setSyncError(`Error inicializando Auth: ${toPlainError(error).message}`);
+      logSyncError("Error inicializando Auth", error);
     });
 
-    return () => unsubAuth();
+    return () => {
+      isCancelled = true;
+      unsubAuth();
+    };
   }, []);
 
   const collectionRef = (name) => collection(db, "workspaces", cajaWorkspaceId, name);

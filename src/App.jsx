@@ -154,6 +154,11 @@ function App() {
     reports: <Reports data={data} metrics={metrics} />,
     settings: <SettingsScreen data={data} store={store} />,
   }[activeTab];
+  const protectedScreen = store.syncStatus === "error" && activeTab !== "settings"
+    ? <SyncIssueScreen store={store} setActiveTab={setActiveTab} />
+    : store.syncStatus === "syncing" && !store.isRemoteReady
+      ? <SyncLoadingScreen store={store} />
+      : screen;
 
   return (
     <div className="app-shell">
@@ -167,12 +172,36 @@ function App() {
           openActions={() => setSheet("actions")}
         />
         {store.syncError && <p className="sync-error-banner">{store.syncError}</p>}
-        <section className={`screen ${activeTab}-screen`}>{screen}</section>
+        <section className={`screen ${activeTab}-screen`}>{protectedScreen}</section>
         <FloatingActionButton onClick={() => setSheet("actions")} />
         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         <TransactionSheet sheet={sheet} setSheet={setSheet} store={store} />
       </main>
     </div>
+  );
+}
+
+function SyncLoadingScreen({ store }) {
+  return (
+    <article className="empty-state">
+      <div className="mini-icon blue"><Wallet size={22} /></div>
+      <h3>Sincronizando caja</h3>
+      <p>Esperando Firestore para cargar los datos reales de {store.workspaceId}.</p>
+    </article>
+  );
+}
+
+function SyncIssueScreen({ store, setActiveTab }) {
+  return (
+    <article className="empty-state sync-issue">
+      <div className="mini-icon red"><ShieldAlert size={22} /></div>
+      <h3>No se pudo leer Firestore</h3>
+      <p>{store.syncError || "Revisá permisos de Firebase antes de usar la caja."}</p>
+      <p>Ruta: workspaces/{store.workspaceId}/movements</p>
+      <button className="wide-action" type="button" onClick={() => setActiveTab("settings")}>
+        Ver diagnóstico
+      </button>
+    </article>
   );
 }
 

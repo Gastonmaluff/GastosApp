@@ -1001,6 +1001,18 @@ button:disabled {
   line-height: 1.4;
 }
 
+.sync-issue {
+  text-align: left;
+}
+
+.sync-issue .mini-icon {
+  margin-left: 0;
+}
+
+.sync-issue .wide-action {
+  margin-top: 16px;
+}
+
 @media (min-width: 720px) and (max-width: 767px) {
   .app-shell {
     padding: 20px 0;
