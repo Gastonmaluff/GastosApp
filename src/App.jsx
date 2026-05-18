@@ -126,13 +126,33 @@ function App() {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [sheet, setSheet] = useState(null);
 
+  if (store.isFirebaseConfigured && !store.isAuthReady) {
+    return (
+      <div className="app-shell auth-shell">
+        <main className="auth-panel">
+          <div className="auth-brand">
+            <div className="sidebar-logo"><Wallet size={22} /></div>
+            <div>
+              <strong>GastosApp</strong>
+              <span>Conectando caja...</span>
+            </div>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  if (store.isFirebaseConfigured && !store.user) {
+    return <LoginScreen store={store} />;
+  }
+
   const screen = {
     dashboard: <Dashboard store={store} openSheet={setSheet} goTo={setActiveTab} />,
     movements: <Movements data={data} metrics={metrics} />,
     stock: <Stock store={store} openSheet={setSheet} />,
     debts: <Debts store={store} openSheet={setSheet} />,
     reports: <Reports data={data} metrics={metrics} />,
-    settings: <SettingsScreen data={data} remoteReady={store.isRemoteReady} />,
+    settings: <SettingsScreen data={data} remoteReady={store.isRemoteReady} user={store.user} onLogout={store.logout} />,
   }[activeTab];
 
   return (
@@ -149,6 +169,50 @@ function App() {
         <FloatingActionButton onClick={() => setSheet("actions")} />
         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         <TransactionSheet sheet={sheet} setSheet={setSheet} store={store} />
+      </main>
+    </div>
+  );
+}
+
+function LoginScreen({ store }) {
+  const [form, setForm] = useState({ email: "", password: "" });
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const update = (key, value) => setForm((current) => ({ ...current, [key]: value }));
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+    try {
+      await store.login(form);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="app-shell auth-shell">
+      <main className="auth-panel">
+        <div className="auth-brand">
+          <div className="sidebar-logo"><Wallet size={22} /></div>
+          <div>
+            <strong>GastosApp</strong>
+            <span>Caja compartida</span>
+          </div>
+        </div>
+        <div className="auth-copy">
+          <p className="eyebrow">Acceso seguro</p>
+          <h1>Control de Caja</h1>
+          <p>Iniciá sesión para sincronizar los datos entre computadora y celular.</p>
+        </div>
+        <form className="form-stack" onSubmit={submit}>
+          <Input label="Email" type="email" value={form.email} onChange={(value) => update("email", value)} placeholder="gaston@admin.com" />
+          <Input label="Contraseña" type="password" value={form.password} onChange={(value) => update("password", value)} placeholder="Tu contraseña" />
+          {store.authError && <p className="auth-error">{store.authError}</p>}
+          <button className="submit-button" type="submit" disabled={isSubmitting}>
+            <Check size={19} /> {isSubmitting ? "Entrando..." : "Entrar"}
+          </button>
+        </form>
       </main>
     </div>
   );
@@ -507,12 +571,18 @@ function Reports({ data, metrics }) {
   );
 }
 
-function SettingsScreen({ data, remoteReady }) {
+function SettingsScreen({ data, remoteReady, user, onLogout }) {
   return (
     <div className="stack">
       <InfoCard title="Datos">
         <MetricRow label="Modo de persistencia" value={0} />
         <p className="settings-line">{remoteReady ? "Firebase activo con caja compartida entre dispositivos." : "Datos mock/localStorage hasta completar .env.local con Firebase."}</p>
+        {user?.email && <p className="settings-line">Sesión: {user.email}</p>}
+        {remoteReady && (
+          <button className="wide-action" type="button" onClick={onLogout}>
+            Cerrar sesión
+          </button>
+        )}
       </InfoCard>
       <InfoCard title="Objetivos">
         <MetricRow label="Pago mensual deuda" value={data.settings.monthlyDebtTarget} />

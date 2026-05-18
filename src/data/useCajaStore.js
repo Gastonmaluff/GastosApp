@@ -10,7 +10,7 @@ import {
   updateDoc,
   writeBatch,
 } from "firebase/firestore";
-import { onAuthStateChanged, signInAnonymously } from "firebase/auth";
+import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from "firebase/auth";
 import { auth, cajaWorkspaceId, db, isFirebaseConfigured } from "../lib/firebase";
 import { categoryKey, sameMonth, todayISO } from "../lib/format";
 import { seedData, walletLabels } from "./seed";
@@ -71,17 +71,19 @@ const hasLocalActivity = (localData) => {
 
 export function useCajaStore() {
   const [user, setUser] = useState(null);
+  const [isAuthReady, setIsAuthReady] = useState(!isFirebaseConfigured);
   const [isRemoteReady, setIsRemoteReady] = useState(false);
+  const [authError, setAuthError] = useState("");
   const [data, setData] = useState(() => loadLocal());
 
   useEffect(() => {
     if (!isFirebaseConfigured) return undefined;
 
     let unsubAuth = () => {};
-    signInAnonymously(auth).catch(() => setIsRemoteReady(false));
     unsubAuth = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
       setIsRemoteReady(Boolean(nextUser));
+      setIsAuthReady(true);
     });
 
     return () => unsubAuth();
@@ -167,6 +169,23 @@ export function useCajaStore() {
   };
 
   const userId = user?.uid ?? "local-demo";
+
+  const login = async ({ email, password }) => {
+    if (!isFirebaseConfigured) return;
+    setAuthError("");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      setAuthError("No se pudo iniciar sesion. Revisá el email y la contraseña.");
+      throw error;
+    }
+  };
+
+  const logout = async () => {
+    if (!isFirebaseConfigured) return;
+    setAuthError("");
+    await firebaseSignOut(auth);
+  };
 
   const addRemote = async (name, payload) => {
     if (!isRemoteReady || !user) return null;
@@ -513,7 +532,12 @@ export function useCajaStore() {
     data,
     metrics,
     isFirebaseConfigured,
+    isAuthReady,
     isRemoteReady,
+    user,
+    authError,
+    login,
+    logout,
     addProduct,
     adjustStock,
     registerSale,
