@@ -11,10 +11,17 @@
   box-sizing: border-box;
 }
 
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  overflow-x: hidden;
   background:
     radial-gradient(circle at top left, rgba(84, 125, 255, 0.08), transparent 28rem),
     linear-gradient(180deg, #fbfcff 0%, #f1f4f8 100%);
@@ -35,6 +42,10 @@ button {
   display: flex;
   justify-content: center;
   padding: 0;
+}
+
+.desktop-sidebar {
+  display: none;
 }
 
 .phone-frame {
@@ -104,6 +115,10 @@ button {
   color: #101828;
   background: #ffffff;
   box-shadow: 0 10px 28px rgba(16, 24, 40, 0.08);
+}
+
+.desktop-new-button {
+  display: none;
 }
 
 .screen {
@@ -897,7 +912,7 @@ button {
   line-height: 1.4;
 }
 
-@media (min-width: 720px) {
+@media (min-width: 720px) and (max-width: 767px) {
   .app-shell {
     padding: 20px 0;
   }
@@ -906,5 +921,279 @@ button {
     min-height: calc(100vh - 40px);
     border-radius: 36px;
     box-shadow: 0 30px 80px rgba(16, 24, 40, 0.14);
+  }
+}
+
+@media (min-width: 768px) {
+  body {
+    background:
+      radial-gradient(circle at 8% 0%, rgba(18, 183, 106, 0.08), transparent 26rem),
+      radial-gradient(circle at 90% 12%, rgba(21, 94, 239, 0.07), transparent 30rem),
+      linear-gradient(180deg, #fbfcff 0%, #f3f6f9 100%);
+  }
+
+  .app-shell {
+    align-items: stretch;
+    justify-content: center;
+    padding: 24px;
+  }
+
+  .phone-frame {
+    width: 100%;
+    max-width: 900px;
+    min-height: calc(100vh - 48px);
+    border-radius: 34px;
+    background: rgba(246, 247, 251, 0.94);
+    box-shadow: 0 30px 80px rgba(16, 24, 40, 0.12);
+  }
+
+  .app-header {
+    padding: 28px 28px 18px;
+    border-radius: 34px 34px 0 0;
+  }
+
+  .screen {
+    padding: 10px 28px 122px;
+  }
+
+  .stat-grid,
+  .stock-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reports-screen > .stack,
+  .settings-screen > .stack {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: start;
+  }
+
+  .reports-screen .segmented {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    width: 100%;
+    max-width: 1500px;
+    margin: 0 auto;
+    justify-content: flex-start;
+  }
+
+  .desktop-sidebar {
+    position: sticky;
+    top: 24px;
+    display: flex;
+    flex: 0 0 240px;
+    height: calc(100vh - 48px);
+    margin-right: 24px;
+    padding: 22px 16px;
+    flex-direction: column;
+    gap: 28px;
+    border: 1px solid rgba(16, 24, 40, 0.07);
+    border-radius: 30px;
+    background: rgba(255, 255, 255, 0.9);
+    box-shadow: 0 24px 70px rgba(16, 24, 40, 0.1);
+    backdrop-filter: blur(20px);
+  }
+
+  .sidebar-brand {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: center;
+    gap: 12px;
+    padding: 4px 6px;
+  }
+
+  .sidebar-logo {
+    width: 48px;
+    height: 48px;
+    border-radius: 18px;
+    display: grid;
+    place-items: center;
+    color: #ffffff;
+    background: linear-gradient(135deg, #21b66b, #087342);
+    box-shadow: 0 14px 28px rgba(20, 130, 78, 0.22);
+  }
+
+  .sidebar-brand strong,
+  .sidebar-brand span {
+    display: block;
+  }
+
+  .sidebar-brand strong {
+    font-size: 17px;
+  }
+
+  .sidebar-brand span {
+    margin-top: 3px;
+    color: #667085;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .sidebar-nav {
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .sidebar-nav button {
+    min-height: 50px;
+    border: 0;
+    border-radius: 17px;
+    padding: 0 14px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    color: #475467;
+    background: transparent;
+    font-weight: 780;
+    text-align: left;
+  }
+
+  .sidebar-nav button.active {
+    color: #067647;
+    background: #ecfdf3;
+    box-shadow: inset 0 0 0 1px rgba(18, 183, 106, 0.12);
+  }
+
+  .phone-frame {
+    flex: 1;
+    max-width: 1280px;
+    min-width: 0;
+    border-radius: 30px;
+  }
+
+  .app-header {
+    padding: 30px 34px 20px;
+    border-radius: 30px 30px 0 0;
+  }
+
+  .app-header h1 {
+    font-size: 30px;
+  }
+
+  .header-actions {
+    gap: 10px;
+  }
+
+  .desktop-new-button {
+    min-height: 42px;
+    border: 0;
+    border-radius: 16px;
+    padding: 0 16px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    color: #ffffff;
+    background: linear-gradient(135deg, #2e6bff, #155eef);
+    box-shadow: 0 14px 30px rgba(21, 94, 239, 0.2);
+    font-weight: 780;
+  }
+
+  .screen {
+    padding: 12px 34px 42px;
+  }
+
+  .bottom-nav,
+  .fab {
+    display: none;
+  }
+
+  .dashboard-screen > .stack {
+    display: grid;
+    grid-template-columns: minmax(340px, 1.12fr) minmax(300px, 0.88fr);
+    gap: 22px;
+    align-items: stretch;
+  }
+
+  .dashboard-screen .main-balance-card {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 218px;
+  }
+
+  .dashboard-screen .main-balance-card strong {
+    font-size: 42px;
+  }
+
+  .dashboard-screen .debt-summary-card {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: stretch;
+  }
+
+  .dashboard-screen .stat-grid {
+    grid-column: 1 / -1;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  .dashboard-screen .info-card {
+    grid-column: 1;
+  }
+
+  .dashboard-screen .progress-card {
+    grid-column: 2;
+  }
+
+  .dashboard-screen .alert-card,
+  .dashboard-screen .wide-action {
+    grid-column: 1 / -1;
+  }
+
+  .stock-screen > .stack,
+  .debts-screen > .stack,
+  .movements-screen > .stack {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    align-items: start;
+  }
+
+  .stock-screen .segmented,
+  .stock-screen .stock-summary,
+  .stock-screen .wide-action,
+  .debts-screen .debt-total-card,
+  .debts-screen .wide-action {
+    grid-column: 1 / -1;
+  }
+
+  .stock-screen .stock-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .reports-screen > .stack,
+  .settings-screen > .stack {
+    grid-template-columns: repeat(2, minmax(320px, 1fr));
+  }
+
+  .bottom-sheet {
+    max-width: 560px;
+    max-height: calc(100vh - 80px);
+    border-radius: 32px;
+    margin-bottom: 0;
+  }
+
+  .sheet-backdrop {
+    align-items: center;
+  }
+}
+
+@media (min-width: 1280px) {
+  .dashboard-screen > .stack {
+    grid-template-columns: minmax(420px, 1.05fr) minmax(360px, 0.95fr);
+  }
+
+  .stat-grid {
+    gap: 16px;
+  }
+}
+
+@media (min-width: 1500px) {
+  .app-shell {
+    padding-left: 32px;
+    padding-right: 32px;
   }
 }

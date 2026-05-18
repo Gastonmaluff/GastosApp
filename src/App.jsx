@@ -137,9 +137,15 @@ function App() {
 
   return (
     <div className="app-shell">
+      <Sidebar activeTab={activeTab} setActiveTab={setActiveTab} />
       <main className="phone-frame">
-        <Header activeTab={activeTab} setActiveTab={setActiveTab} remoteReady={store.isRemoteReady} />
-        <section className="screen">{screen}</section>
+        <Header
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          remoteReady={store.isRemoteReady}
+          openActions={() => setSheet("actions")}
+        />
+        <section className={`screen ${activeTab}-screen`}>{screen}</section>
         <FloatingActionButton onClick={() => setSheet("actions")} />
         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
         <TransactionSheet sheet={sheet} setSheet={setSheet} store={store} />
@@ -148,7 +154,7 @@ function App() {
   );
 }
 
-function Header({ activeTab, setActiveTab, remoteReady }) {
+function Header({ activeTab, setActiveTab, remoteReady, openActions }) {
   const title = {
     dashboard: "Control de Caja",
     movements: "Movimientos",
@@ -168,6 +174,9 @@ function Header({ activeTab, setActiveTab, remoteReady }) {
         <span className={`sync-pill ${remoteReady ? "online" : ""}`}>
           {remoteReady ? "Firebase" : "Local"}
         </span>
+        <button className="desktop-new-button" type="button" onClick={openActions}>
+          <Plus size={18} /> Nuevo movimiento
+        </button>
         <button className="icon-button" type="button" aria-label="Configuración" onClick={() => setActiveTab("settings")}>
           <Settings size={19} />
         </button>
@@ -176,6 +185,31 @@ function Header({ activeTab, setActiveTab, remoteReady }) {
         </button>
       </div>
     </header>
+  );
+}
+
+function Sidebar({ activeTab, setActiveTab }) {
+  return (
+    <aside className="desktop-sidebar" aria-label="Navegacion principal">
+      <div className="sidebar-brand">
+        <div className="sidebar-logo"><Wallet size={22} /></div>
+        <div>
+          <strong>GastosApp</strong>
+          <span>Control diario</span>
+        </div>
+      </div>
+      <nav className="sidebar-nav">
+        {navItems.map((item) => {
+          const Icon = item.icon;
+          return (
+            <button type="button" className={activeTab === item.id ? "active" : ""} key={item.id} onClick={() => setActiveTab(item.id)}>
+              <Icon size={20} />
+              <span>{item.label}</span>
+            </button>
+          );
+        })}
+      </nav>
+    </aside>
   );
 }
 
