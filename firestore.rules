@@ -1,0 +1,14 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isCajaAdmin() {
+      return request.auth != null
+        && request.auth.uid == "dBuIbIkTgbMxn2LrUt5zNOhDyBD2";
+    }
+
+    match /workspaces/{workspaceId}/{document=**} {
+      allow read, write: if isCajaAdmin() && workspaceId == "principal";
+    }
+  }
+}
