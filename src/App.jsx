@@ -152,7 +152,7 @@ function App() {
     stock: <Stock store={store} openSheet={setSheet} />,
     debts: <Debts store={store} openSheet={setSheet} />,
     reports: <Reports data={data} metrics={metrics} />,
-    settings: <SettingsScreen data={data} remoteReady={store.isRemoteReady} user={store.user} onLogout={store.logout} />,
+    settings: <SettingsScreen data={data} store={store} />,
   }[activeTab];
 
   return (
@@ -162,9 +162,11 @@ function App() {
         <Header
           activeTab={activeTab}
           setActiveTab={setActiveTab}
-          remoteReady={store.isRemoteReady}
+          syncStatus={store.syncStatus}
+          syncError={store.syncError}
           openActions={() => setSheet("actions")}
         />
+        {store.syncError && <p className="sync-error-banner">{store.syncError}</p>}
         <section className={`screen ${activeTab}-screen`}>{screen}</section>
         <FloatingActionButton onClick={() => setSheet("actions")} />
         <BottomNav activeTab={activeTab} setActiveTab={setActiveTab} />
@@ -218,7 +220,7 @@ function LoginScreen({ store }) {
   );
 }
 
-function Header({ activeTab, setActiveTab, remoteReady, openActions }) {
+function Header({ activeTab, setActiveTab, syncStatus, syncError, openActions }) {
   const title = {
     dashboard: "Control de Caja",
     movements: "Movimientos",
@@ -227,6 +229,13 @@ function Header({ activeTab, setActiveTab, remoteReady, openActions }) {
     reports: "Reportes",
     settings: "Configuración",
   }[activeTab];
+  const syncLabel = {
+    online: "Firebase",
+    syncing: "Sync...",
+    error: "Error",
+    local: "Local",
+    "signed-out": "Login",
+  }[syncStatus] || "Local";
 
   return (
     <header className="app-header">
@@ -235,8 +244,8 @@ function Header({ activeTab, setActiveTab, remoteReady, openActions }) {
         <h1>{title}</h1>
       </div>
       <div className="header-actions">
-        <span className={`sync-pill ${remoteReady ? "online" : ""}`}>
-          {remoteReady ? "Firebase" : "Local"}
+        <span className={`sync-pill ${syncStatus === "online" ? "online" : ""} ${syncStatus === "error" ? "error" : ""}`} title={syncError || syncStatus}>
+          {syncLabel}
         </span>
         <button className="desktop-new-button" type="button" onClick={openActions}>
           <Plus size={18} /> Nuevo movimiento
@@ -571,15 +580,23 @@ function Reports({ data, metrics }) {
   );
 }
 
-function SettingsScreen({ data, remoteReady, user, onLogout }) {
+function SettingsScreen({ data, store }) {
+  const user = store.user;
+  const remoteReady = store.isRemoteReady;
   return (
     <div className="stack">
       <InfoCard title="Datos">
         <MetricRow label="Modo de persistencia" value={0} />
-        <p className="settings-line">{remoteReady ? "Firebase activo con caja compartida entre dispositivos." : "Datos mock/localStorage hasta completar .env.local con Firebase."}</p>
+        <p className="settings-line">{remoteReady ? "Firebase activo con caja compartida entre dispositivos." : "Firebase no sincronizado. Revisa consola y permisos."}</p>
+        <p className="settings-line">Estado sync: {store.syncStatus}</p>
+        <p className="settings-line">Build: {store.appBuildId}</p>
+        <p className="settings-line">Workspace/local: {store.workspaceId}</p>
         {user?.email && <p className="settings-line">Sesión: {user.email}</p>}
-        {remoteReady && (
-          <button className="wide-action" type="button" onClick={onLogout}>
+        {user?.uid && <p className="settings-line">UID: {user.uid}</p>}
+        <p className="settings-line">Ruta: workspaces/{store.workspaceId}/movements</p>
+        {store.syncError && <p className="auth-error">{store.syncError}</p>}
+        {user && (
+          <button className="wide-action" type="button" onClick={store.logout}>
             Cerrar sesión
           </button>
         )}
@@ -598,6 +615,7 @@ function SettingsScreen({ data, remoteReady, user, onLogout }) {
 function TransactionSheet({ sheet, setSheet, store }) {
   const [selectedAction, setSelectedAction] = useState(null);
   const [forms, setForms] = useState(initialForms);
+  const [submitError, setSubmitError] = useState("");
   const editingDebtId = sheet?.startsWith("debtEdit:") ? sheet.split(":")[1] : "";
 
   const active = selectedAction || (editingDebtId ? "debtEdit" : sheet);
@@ -628,6 +646,7 @@ function TransactionSheet({ sheet, setSheet, store }) {
   const close = () => {
     setSheet(null);
     setSelectedAction(null);
+    setSubmitError("");
   };
 
   const product = store.data.products.find((item) => item.id === forms.sale.productId);
@@ -640,21 +659,27 @@ function TransactionSheet({ sheet, setSheet, store }) {
 
   const submit = async (event) => {
     event.preventDefault();
-    if (active === "sale") await store.registerSale({ ...forms.sale, unitPrice: forms.sale.unitPrice || product?.salePrice || 0 });
-    if (active === "income") await store.registerIncome(forms.income);
-    if (active === "expense" || active === "debtPayment") await store.registerExpense({
-      ...forms.expense,
-      category: active === "debtPayment" ? "Pago deuda" : forms.expense.category,
-    });
-    if (active === "stock") await store.adjustStock(forms.stock);
-    if (active === "debt") await store.addDebt(forms.debt);
-    if (active === "debtEdit") await store.updateDebt(editingDebtId, forms.debtEdit);
-    if (active === "product") await store.addProduct(forms.product);
-    if (active === "closure") await store.addDailyClosure({
-      ...forms.closure,
-      expectedCash: store.metrics.totalWallets,
-    });
-    close();
+    setSubmitError("");
+    try {
+      if (active === "sale") await store.registerSale({ ...forms.sale, unitPrice: forms.sale.unitPrice || product?.salePrice || 0 });
+      if (active === "income") await store.registerIncome(forms.income);
+      if (active === "expense" || active === "debtPayment") await store.registerExpense({
+        ...forms.expense,
+        category: active === "debtPayment" ? "Pago deuda" : forms.expense.category,
+      });
+      if (active === "stock") await store.adjustStock(forms.stock);
+      if (active === "debt") await store.addDebt(forms.debt);
+      if (active === "debtEdit") await store.updateDebt(editingDebtId, forms.debtEdit);
+      if (active === "product") await store.addProduct(forms.product);
+      if (active === "closure") await store.addDailyClosure({
+        ...forms.closure,
+        expectedCash: store.metrics.totalWallets,
+      });
+      close();
+    } catch (error) {
+      console.error("[GastosApp sync] Error guardando formulario", error);
+      setSubmitError("No se pudo guardar. Revisá la conexión, permisos de Firebase y la consola.");
+    }
   };
 
   return (
@@ -761,6 +786,7 @@ function TransactionSheet({ sheet, setSheet, store }) {
               </>
             )}
 
+            {submitError && <p className="auth-error">{submitError}</p>}
             <button className="submit-button" type="submit"><Check size={19} /> Guardar</button>
           </form>
         )}

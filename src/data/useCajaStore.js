@@ -12,11 +12,13 @@ import {
 } from "firebase/firestore";
 import { onAuthStateChanged, signInWithEmailAndPassword, signOut as firebaseSignOut } from "firebase/auth";
 import { auth, cajaWorkspaceId, db, isFirebaseConfigured } from "../lib/firebase";
+import { appBuildId } from "../lib/appInfo";
 import { categoryKey, sameMonth, todayISO } from "../lib/format";
 import { seedData, walletLabels } from "./seed";
 
 const STORAGE_KEY = "control-de-caja:v1";
 const MIGRATION_KEY = `control-de-caja:migrated:${cajaWorkspaceId}`;
+const LOCAL_BACKUP_KEY = `control-de-caja:backup-before-firestore:${cajaWorkspaceId}`;
 const COLLECTIONS = [
   "products",
   "movements",
@@ -49,6 +51,29 @@ const loadLocal = () => {
 
 const saveLocal = (next) => localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
 
+const collectionPath = (name) => `workspaces/${cajaWorkspaceId}/${name}`;
+
+const toPlainError = (error) => ({
+  code: error?.code || "",
+  message: error?.message || "Error desconocido",
+});
+
+const logSync = (message, details = {}) => {
+  console.info("[GastosApp sync]", message, details);
+};
+
+const logSyncError = (message, error, details = {}) => {
+  console.error("[GastosApp sync]", message, { ...details, error: toPlainError(error) });
+};
+
+const backupLocalBeforeRemote = () => {
+  if (localStorage.getItem(LOCAL_BACKUP_KEY)) return;
+  localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify({
+    createdAt: new Date().toISOString(),
+    data: loadLocal(),
+  }));
+};
+
 const hasLocalActivity = (localData) => {
   if (COLLECTIONS.some((name) => name !== "products" && (localData[name] ?? []).length > 0)) {
     return true;
@@ -73,17 +98,31 @@ export function useCajaStore() {
   const [user, setUser] = useState(null);
   const [isAuthReady, setIsAuthReady] = useState(!isFirebaseConfigured);
   const [isRemoteReady, setIsRemoteReady] = useState(false);
+  const [syncStatus, setSyncStatus] = useState(isFirebaseConfigured ? "signed-out" : "local");
+  const [syncError, setSyncError] = useState("");
   const [authError, setAuthError] = useState("");
   const [data, setData] = useState(() => loadLocal());
 
   useEffect(() => {
-    if (!isFirebaseConfigured) return undefined;
+    if (!isFirebaseConfigured) {
+      logSync("Firebase no configurado, usando localStorage", { build: appBuildId });
+      return undefined;
+    }
 
     let unsubAuth = () => {};
     unsubAuth = onAuthStateChanged(auth, (nextUser) => {
       setUser(nextUser);
-      setIsRemoteReady(Boolean(nextUser));
+      setIsRemoteReady(false);
       setIsAuthReady(true);
+      setSyncError("");
+      setSyncStatus(nextUser ? "syncing" : "signed-out");
+      logSync("Estado de autenticacion", {
+        build: appBuildId,
+        uid: nextUser?.uid || null,
+        email: nextUser?.email || null,
+        workspaceId: cajaWorkspaceId,
+        collections: COLLECTIONS.map(collectionPath),
+      });
     });
 
     return () => unsubAuth();
@@ -91,22 +130,59 @@ export function useCajaStore() {
 
   const collectionRef = (name) => collection(db, "workspaces", cajaWorkspaceId, name);
   const docRef = (name, id) => doc(db, "workspaces", cajaWorkspaceId, name, id);
+  const shouldUseRemote = isFirebaseConfigured && Boolean(user);
+
+  const failRemote = (message, error, details = {}) => {
+    const plain = toPlainError(error);
+    setSyncStatus("error");
+    setIsRemoteReady(false);
+    setSyncError(`${message}: ${plain.message}`);
+    logSyncError(message, error, details);
+  };
 
   useEffect(() => {
-    if (!isRemoteReady || !user) return undefined;
+    if (!isFirebaseConfigured || !user) return undefined;
 
     let cancelled = false;
     let unsubs = [];
 
     const migrateLocalOnce = async () => {
-      if (localStorage.getItem(MIGRATION_KEY)) return;
+      backupLocalBeforeRemote();
 
       const localData = loadLocal();
       const localHasActivity = hasLocalActivity(localData);
       const snapshots = await Promise.all(COLLECTIONS.map((name) => getDocs(collectionRef(name))));
+      const remoteData = COLLECTIONS.reduce((acc, name, index) => {
+        acc[name] = snapshots[index].docs.map((item) => ({ id: item.id, ...item.data() }));
+        return acc;
+      }, { ...cloneSeed(), products: [] });
       const remoteHasData = snapshots.some((snapshot) => !snapshot.empty);
+      const remoteHasActivity = hasLocalActivity(remoteData);
+      const alreadyMigrated = Boolean(localStorage.getItem(MIGRATION_KEY));
+
+      logSync("Revision de migracion local a Firestore", {
+        uid: user.uid,
+        email: user.email,
+        workspaceId: cajaWorkspaceId,
+        localHasActivity,
+        remoteHasData,
+        remoteHasActivity,
+        alreadyMigrated,
+        paths: COLLECTIONS.map(collectionPath),
+      });
 
       if (!localHasActivity && remoteHasData) {
+        localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+        return;
+      }
+
+      if (alreadyMigrated && remoteHasActivity) return;
+
+      if (localHasActivity && remoteHasActivity) {
+        console.warn("[GastosApp sync] Firestore ya tiene actividad; no se migra local automaticamente para evitar duplicados.", {
+          workspaceId: cajaWorkspaceId,
+          backupKey: LOCAL_BACKUP_KEY,
+        });
         localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
         return;
       }
@@ -134,31 +210,61 @@ export function useCajaStore() {
       }
       await commitBatch();
       localStorage.setItem(MIGRATION_KEY, new Date().toISOString());
+      logSync("Migracion local a Firestore completada", {
+        workspaceId: cajaWorkspaceId,
+        uid: user.uid,
+        email: user.email,
+        paths: COLLECTIONS.map(collectionPath),
+      });
     };
 
     const subscribeRemote = async () => {
+      setSyncStatus("syncing");
+      setSyncError("");
       await migrateLocalOnce();
       if (cancelled) return;
 
       unsubs = COLLECTIONS.map((name) =>
         onSnapshot(collectionRef(name), (snapshot) => {
           const values = snapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+          logSync("Snapshot recibido", {
+            path: collectionPath(name),
+            count: values.length,
+            uid: user.uid,
+            email: user.email,
+          });
           setData((current) => {
             const next = { ...current, [name]: values };
             saveLocal(next);
             return next;
           });
+        }, (error) => {
+          failRemote("Error leyendo Firestore", error, { path: collectionPath(name), uid: user.uid, email: user.email });
         }),
       );
+      setIsRemoteReady(true);
+      setSyncStatus("online");
+      logSync("Listeners Firestore activos", {
+        uid: user.uid,
+        email: user.email,
+        workspaceId: cajaWorkspaceId,
+        paths: COLLECTIONS.map(collectionPath),
+      });
     };
 
-    subscribeRemote().catch(() => setIsRemoteReady(false));
+    subscribeRemote().catch((error) => {
+      failRemote("Error inicializando sincronizacion Firestore", error, {
+        uid: user.uid,
+        email: user.email,
+        workspaceId: cajaWorkspaceId,
+      });
+    });
 
     return () => {
       cancelled = true;
       unsubs.forEach((unsubscribe) => unsubscribe());
     };
-  }, [isRemoteReady, user]);
+  }, [user]);
 
   const persistLocal = (producer) => {
     setData((current) => {
@@ -173,10 +279,12 @@ export function useCajaStore() {
   const login = async ({ email, password }) => {
     if (!isFirebaseConfigured) return;
     setAuthError("");
+    setSyncError("");
     try {
       await signInWithEmailAndPassword(auth, email, password);
     } catch (error) {
       setAuthError("No se pudo iniciar sesion. Revisá el email y la contraseña.");
+      logSyncError("Error de login Firebase", error, { email });
       throw error;
     }
   };
@@ -188,33 +296,51 @@ export function useCajaStore() {
   };
 
   const addRemote = async (name, payload) => {
-    if (!isRemoteReady || !user) return null;
-    const ref = await addDoc(collectionRef(name), {
-      ...payload,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      userId: user.uid,
-    });
-    return ref.id;
+    if (!shouldUseRemote) return null;
+    try {
+      logSync("Escribiendo Firestore", { action: "add", path: collectionPath(name), uid: user.uid, email: user.email });
+      const ref = await addDoc(collectionRef(name), {
+        ...payload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        userId: user.uid,
+      });
+      return ref.id;
+    } catch (error) {
+      failRemote("Error escribiendo Firestore", error, { action: "add", path: collectionPath(name), uid: user.uid, email: user.email });
+      throw error;
+    }
   };
 
   const updateRemote = async (name, id, payload) => {
-    if (!isRemoteReady || !user) return;
-    await updateDoc(docRef(name, id), {
-      ...payload,
-      updatedAt: serverTimestamp(),
-      userId: user.uid,
-    });
+    if (!shouldUseRemote) return;
+    try {
+      logSync("Actualizando Firestore", { action: "update", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      await updateDoc(docRef(name, id), {
+        ...payload,
+        updatedAt: serverTimestamp(),
+        userId: user.uid,
+      });
+    } catch (error) {
+      failRemote("Error actualizando Firestore", error, { action: "update", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      throw error;
+    }
   };
 
   const setRemote = async (name, id, payload) => {
-    if (!isRemoteReady || !user) return;
-    await setDoc(docRef(name, id), {
-      ...payload,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-      userId: user.uid,
-    });
+    if (!shouldUseRemote) return;
+    try {
+      logSync("Guardando Firestore", { action: "set", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      await setDoc(docRef(name, id), {
+        ...payload,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+        userId: user.uid,
+      });
+    } catch (error) {
+      failRemote("Error guardando Firestore", error, { action: "set", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      throw error;
+    }
   };
 
   const addProduct = async (product) => {
@@ -227,7 +353,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("products", nextProduct);
       return;
     }
@@ -252,7 +378,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await updateRemote("products", productId, { quantity: nextQuantity });
       await addRemote("movements", movement);
       return;
@@ -305,7 +431,7 @@ export function useCajaStore() {
     };
     const nextQuantity = Math.max(0, Number(product.quantity) - quantity);
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("sales", nextSale);
       await addRemote("movements", movement);
       await updateRemote("products", product.id, { quantity: nextQuantity });
@@ -338,7 +464,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("incomes", nextIncome);
       await addRemote("movements", movement);
       return;
@@ -369,7 +495,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("expenses", nextExpense);
       await addRemote("movements", movement);
       if (expense.debtId) {
@@ -413,7 +539,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("debts", nextDebt);
       return;
     }
@@ -434,7 +560,7 @@ export function useCajaStore() {
       userId,
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await updateRemote("debts", debtId, nextDebt);
       return;
     }
@@ -456,7 +582,7 @@ export function useCajaStore() {
       ...stamp(userId),
     };
 
-    if (isRemoteReady) {
+    if (shouldUseRemote) {
       await addRemote("dailyClosures", nextClosure);
       return;
     }
@@ -534,6 +660,11 @@ export function useCajaStore() {
     isFirebaseConfigured,
     isAuthReady,
     isRemoteReady,
+    syncStatus,
+    syncError,
+    workspaceId: cajaWorkspaceId,
+    appBuildId,
+    firestorePaths: COLLECTIONS.map(collectionPath),
     user,
     authError,
     login,

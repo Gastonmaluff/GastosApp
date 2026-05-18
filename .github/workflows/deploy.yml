@@ -42,6 +42,7 @@ jobs:
           VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ secrets.VITE_FIREBASE_MESSAGING_SENDER_ID }}
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
           VITE_CAJA_WORKSPACE_ID: ${{ secrets.VITE_CAJA_WORKSPACE_ID || 'principal' }}
+          VITE_APP_VERSION: ${{ github.sha }}
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
