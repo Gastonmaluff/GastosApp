@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   addDoc,
   collection,
+  deleteDoc,
   doc,
   getDocs,
   onSnapshot,
@@ -345,6 +346,17 @@ export function useCajaStore() {
     }
   };
 
+  const deleteRemote = async (name, id) => {
+    if (!shouldUseRemote) return;
+    try {
+      logSync("Eliminando Firestore", { action: "delete", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      await deleteDoc(docRef(name, id));
+    } catch (error) {
+      failRemote("Error eliminando Firestore", error, { action: "delete", path: `${collectionPath(name)}/${id}`, uid: user.uid, email: user.email });
+      throw error;
+    }
+  };
+
   const setRemote = async (name, id, payload) => {
     if (!shouldUseRemote) return;
     try {
@@ -379,6 +391,42 @@ export function useCajaStore() {
     persistLocal((current) => ({
       ...current,
       products: [{ id: makeId("product"), ...nextProduct }, ...current.products],
+    }));
+  };
+
+  const updateProduct = async (productId, product) => {
+    const nextProduct = {
+      ...product,
+      quantity: Number(product.quantity),
+      unitCost: Number(product.unitCost),
+      salePrice: Number(product.salePrice),
+      margin: Number(product.salePrice) - Number(product.unitCost),
+      updatedAt: new Date().toISOString(),
+      userId,
+    };
+
+    if (shouldUseRemote) {
+      await updateRemote("products", productId, nextProduct);
+      return;
+    }
+
+    persistLocal((current) => ({
+      ...current,
+      products: current.products.map((item) =>
+        item.id === productId ? { ...item, ...nextProduct } : item,
+      ),
+    }));
+  };
+
+  const deleteProduct = async (productId) => {
+    if (shouldUseRemote) {
+      await deleteRemote("products", productId);
+      return;
+    }
+
+    persistLocal((current) => ({
+      ...current,
+      products: current.products.filter((item) => item.id !== productId),
     }));
   };
 
@@ -688,6 +736,8 @@ export function useCajaStore() {
     login,
     logout,
     addProduct,
+    updateProduct,
+    deleteProduct,
     adjustStock,
     registerSale,
     registerIncome,

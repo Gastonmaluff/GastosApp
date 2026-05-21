@@ -883,6 +883,12 @@ button:disabled {
   gap: 12px;
 }
 
+.product-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .product-thumb {
   width: 58px;
   height: 58px;
@@ -958,6 +964,16 @@ button:disabled {
   place-items: center;
   color: #155eef;
   background: #eff6ff;
+}
+
+.edit-button.danger {
+  color: #b42318;
+  background: #fef3f2;
+}
+
+.edit-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .debt-line {

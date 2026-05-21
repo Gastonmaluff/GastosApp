@@ -22,6 +22,7 @@ import {
   ShieldAlert,
   Sparkles,
   Target,
+  Trash2,
   Wallet,
   X,
 } from "lucide-react";
@@ -479,14 +480,38 @@ function Stock({ store, openSheet }) {
       <button className="wide-action primary" type="button" onClick={() => openSheet("product")}>
         <Plus size={18} /> Agregar producto
       </button>
-      {products.map((product) => <ProductStockCard key={product.id} product={product} />)}
+      {products.map((product) => (
+        <ProductStockCard
+          key={product.id}
+          product={product}
+          onEdit={() => openSheet(`productEdit:${product.id}`)}
+          onDelete={async () => {
+            const confirmed = window.confirm(`Eliminar ${product.name}? Esta accion no se puede deshacer.`);
+            if (!confirmed) return;
+            await store.deleteProduct(product.id);
+          }}
+        />
+      ))}
     </div>
   );
 }
 
-function ProductStockCard({ product }) {
+function ProductStockCard({ product, onEdit, onDelete }) {
   const valueAtCost = Number(product.quantity) * Number(product.unitCost);
   const potential = Number(product.quantity) * (Number(product.salePrice) - Number(product.unitCost));
+  const [isDeleting, setIsDeleting] = useState(false);
+
+  const deleteProduct = async () => {
+    setIsDeleting(true);
+    try {
+      await onDelete();
+    } catch (error) {
+      console.error("[GastosApp sync] Error eliminando producto", error);
+      window.alert("No se pudo eliminar el producto. Revisa la conexion o permisos de Firebase.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   return (
     <article className="product-card">
@@ -496,7 +521,14 @@ function ProductStockCard({ product }) {
           <h3>{product.name}</h3>
           <p>{product.category} · {product.variant || "Sin variante"}</p>
         </div>
-        <span className="status">Activo</span>
+        <div className="product-actions">
+          <button className="edit-button" type="button" onClick={onEdit} aria-label={`Editar ${product.name}`}>
+            <Pencil size={16} />
+          </button>
+          <button className="edit-button danger" type="button" onClick={deleteProduct} disabled={isDeleting} aria-label={`Eliminar ${product.name}`}>
+            <Trash2 size={16} />
+          </button>
+        </div>
       </div>
       <div className="product-metrics">
         <span>Stock <strong>{product.quantity} un.</strong></span>
@@ -646,9 +678,10 @@ function TransactionSheet({ sheet, setSheet, store }) {
   const [forms, setForms] = useState(initialForms);
   const [submitError, setSubmitError] = useState("");
   const editingDebtId = sheet?.startsWith("debtEdit:") ? sheet.split(":")[1] : "";
+  const editingProductId = sheet?.startsWith("productEdit:") ? sheet.split(":")[1] : "";
 
-  const active = selectedAction || (editingDebtId ? "debtEdit" : sheet);
-  const activeFormKey = active === "debtPayment" ? "expense" : active;
+  const active = selectedAction || (editingDebtId ? "debtEdit" : editingProductId ? "productEdit" : sheet);
+  const activeFormKey = active === "debtPayment" ? "expense" : active === "productEdit" ? "product" : active;
   const update = (key, value) => setForms((current) => ({ ...current, [activeFormKey]: { ...current[activeFormKey], [key]: value } }));
   const setForm = (key, producer) => setForms((current) => ({ ...current, [key]: producer(current[key]) }));
 
@@ -669,6 +702,25 @@ function TransactionSheet({ sheet, setSheet, store }) {
       },
     }));
   }, [editingDebtId, store.data.debts]);
+
+  useEffect(() => {
+    if (!editingProductId) return;
+    const product = store.data.products.find((item) => item.id === editingProductId);
+    if (!product) return;
+    setForms((current) => ({
+      ...current,
+      product: {
+        name: product.name || "",
+        category: product.category || "Edredones",
+        variant: product.variant || "",
+        quantity: product.quantity ?? "",
+        unitCost: product.unitCost ?? "",
+        salePrice: product.salePrice ?? "",
+        supplier: product.supplier || "",
+        observation: product.observation || "",
+      },
+    }));
+  }, [editingProductId, store.data.products]);
 
   if (!sheet) return null;
 
@@ -700,6 +752,7 @@ function TransactionSheet({ sheet, setSheet, store }) {
       if (active === "debt") await store.addDebt(forms.debt);
       if (active === "debtEdit") await store.updateDebt(editingDebtId, forms.debtEdit);
       if (active === "product") await store.addProduct(forms.product);
+      if (active === "productEdit") await store.updateProduct(editingProductId, forms.product);
       if (active === "closure") await store.addDailyClosure({
         ...forms.closure,
         expectedCash: store.metrics.totalWallets,
@@ -782,7 +835,7 @@ function TransactionSheet({ sheet, setSheet, store }) {
               </>
             )}
 
-            {active === "product" && (
+            {(active === "product" || active === "productEdit") && (
               <>
                 <Input label="Nombre" value={forms.product.name} onChange={(value) => update("name", value)} placeholder="Edredón King" />
                 <Select label="Categoría" value={forms.product.category} onChange={(value) => update("category", value)} options={productCategories} />
@@ -922,6 +975,7 @@ function titleForAction(action) {
     debt: "Registrar deuda",
     debtEdit: "Editar deuda",
     product: "Agregar producto",
+    productEdit: "Editar producto",
     closure: "Cerrar día",
   }[action];
 }
